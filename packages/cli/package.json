@@ -1,0 +1,37 @@
+{
+  "name": "@usehive/cli",
+  "version": "0.1.0",
+  "description": "Discover Next.js application capabilities and generate a local MCP server",
+  "type": "module",
+  "license": "UNLICENSED",
+  "bin": {
+    "hive": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/cli/index.js', 0o755)\"",
+    "dev": "tsx src/cli/index.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "commander": "^14.0.0",
+    "ts-morph": "28.0.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@types/node": "22.20.2",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "zod": "3.25.76"
+  }
+}

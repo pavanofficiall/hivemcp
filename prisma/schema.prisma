@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  passwordHash String
+  createdAt DateTime @default(now())
+  sessions Session[]
+  applications Application[]
+  githubConnections GitHubConnection[]
+}
+model Session {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+model GitHubConnection {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  githubUserId String
+  login String
+  encryptedAccessToken String
+  expiresAt DateTime?
+  @@unique([userId])
+}
+model Application {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  slug String @unique
+  enabled Boolean @default(true)
+  published Boolean @default(false)
+  installationId Int
+  repositoryId Int
+  repositoryOwner String
+  repositoryName String
+  defaultBranch String
+  currentCommitSha String?
+  analyzedCommitSha String?
+  sourceChanged Boolean @default(false)
+  framework String?
+  language String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  runs AnalysisRun[]
+  capabilities Capability[]
+  environment ApplicationEnvironment?
+  logs ExecutionLog[]
+  @@unique([userId, repositoryId])
+}
+model AnalysisRun {
+  id String @id @default(cuid())
+  applicationId String
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  status String @default("QUEUED")
+  stage String @default("Waiting for worker")
+  progress Int @default(0)
+  metrics Json @default("{}")
+  index Json?
+  commitSha String?
+  errorCode String?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  nodes GraphNode[]
+  edges GraphEdge[]
+  capabilities Capability[]
+  @@index([applicationId, createdAt])
+}
+model GraphNode {
+  id String @id
+  runId String
+  run AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  kind String
+  label String
+  data Json
+  @@index([runId, kind])
+}
+model GraphEdge {
+  id String @id @default(cuid())
+  runId String
+  run AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  source String
+  target String
+  kind String
+  @@index([runId])
+}
+model Capability {
+  id String @id @default(cuid())
+  applicationId String
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  analysisRunId String
+  analysisRun AnalysisRun @relation(fields: [analysisRunId], references: [id])
+  name String
+  displayName String
+  description String
+  category String
+  status String @default("CANDIDATE")
+  enabled Boolean @default(false)
+  policy String @default("confirmation_required")
+  operationType String
+  risk String
+  confidence Float
+  inputSchema Json
+  implementation Json
+  evidence Json
+  permissions Json
+  preconditions Json
+  sideEffects Json
+  affectedModels Json
+  fingerprint String
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([applicationId, name])
+}
+model ApplicationEnvironment {
+  id String @id @default(cuid())
+  applicationId String @unique
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  name String @default("Local")
+  baseUrl String
+  issuerUrl String
+  clientId String
+  encryptedClientSecret String?
+  scopes String @default("")
+  status String @default("CONFIGURED")
+  credentials ApplicationCredential[]
+}
+model ApplicationCredential {
+  id String @id @default(cuid())
+  environmentId String
+  environment ApplicationEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  userId String
+  subject String
+  encryptedAccessToken String
+  encryptedRefreshToken String?
+  expiresAt DateTime
+  @@unique([environmentId, userId])
+}
+model OAuthState {
+  id String @id
+  userId String
+  purpose String
+  payload Json
+  expiresAt DateTime
+}
+model OAuthClient {
+  id String @id @default(cuid())
+  userId String
+  applicationId String
+  name String
+  redirectUris String[]
+  createdAt DateTime @default(now())
+}
+model OAuthCode {
+  id String @id
+  userId String
+  applicationId String
+  clientId String
+  redirectUri String
+  challenge String
+  resource String
+  expiresAt DateTime
+}
+model AgentToken {
+  id String @id @default(cuid())
+  userId String
+  applicationId String
+  clientId String
+  accessHash String @unique
+  refreshHash String @unique
+  expiresAt DateTime
+  refreshExpiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+}
+model Confirmation {
+  id String @id @default(cuid())
+  userId String
+  applicationId String
+  capabilityId String
+  fingerprint String
+  inputHash String
+  input Json
+  approvedAt DateTime?
+  consumedAt DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+model ExecutionLog {
+  id String @id @default(cuid())
+  userId String
+  applicationId String
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  capabilityId String?
+  capabilityName String
+  environmentId String?
+  client String
+  status String
+  duration Int
+  inputSummary Json
+  resultSummary Json
+  errorCode String?
+  policy String?
+  createdAt DateTime @default(now())
+  @@index([applicationId, createdAt])
+}
+model WebhookDelivery {
+  id String @id
+  createdAt DateTime @default(now())
+}

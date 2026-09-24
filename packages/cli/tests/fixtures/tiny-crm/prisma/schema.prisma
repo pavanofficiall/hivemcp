@@ -1,0 +1,16 @@
+// Supporting model metadata only; the fixture runtime uses in-memory services.
+model Contact {
+  id String @id
+  email String @unique
+  companyId String?
+  company Company? @relation(fields: [companyId], references: [id])
+}
+model Company {
+  id String @id
+  name String
+  contacts Contact[]
+}
+enum SequenceStatus {
+  DRAFT
+  LAUNCHED
+}

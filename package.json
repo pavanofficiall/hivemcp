@@ -1,0 +1,62 @@
+{
+  "name": "hive",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3000",
+    "build": "prisma generate && next build",
+    "start": "next start --hostname 127.0.0.1 --port 3000",
+    "worker": "tsx --env-file=.env workers/analysis.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "tsx --env-file=.env scripts/integration.ts",
+    "test:ui": "tsx --env-file=.env scripts/ui-smoke.ts",
+    "format": "prettier --write .",
+    "hive:build": "npm --prefix packages/cli run build",
+    "hive:test": "npm --prefix packages/cli test",
+    "hive": "node packages/cli/dist/cli/index.js"
+  },
+  "dependencies": {
+    "@google/genai": "2.22.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@octokit/auth-app": "8.3.1",
+    "@octokit/rest": "22.0.1",
+    "@prisma/client": "6.19.3",
+    "@radix-ui/react-slot": "1.3.3",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "bullmq": "6.3.4",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "ioredis": "6.0.0",
+    "lucide-react": "1.44.0",
+    "next": "16.3.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "3.6.0",
+    "ts-morph": "28.0.0",
+    "zod": "3.25.76",
+    "zod-to-json-schema": "3.25.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.20.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "prettier": "3.9.6",
+    "prisma": "6.19.3",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.0"
+  },
+  "type": "module"
+}
