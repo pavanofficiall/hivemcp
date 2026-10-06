@@ -7,11 +7,22 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import definitions from './tools.json' with { type: 'json' };
 import { toObject } from './schema.js';
 import { execute, type AuthContext } from './adapter.js';
+import { loadPolicy, allowed } from './policy.js';
+import { record } from './log.js';
 import type { Tool } from './types.js';
 const tools = definitions as unknown as Tool[];
-function createMcp(auth: AuthContext = {}) {
+type Context = { auth?: AuthContext; userAgent?: string; transport: 'http' | 'stdio' };
+const list = (value?: string) =>
+  (value ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+function createMcp(context: Context) {
   const server = new McpServer({ name: 'hive-generated-mcp', version: '{{HIVE_VERSION}}' });
-  for (const tool of tools) {
+  const policy = loadPolicy();
+  if (policy.error) console.error(`Hive MCP: ${policy.error}`);
+  // Tools denied by .hive/policy.json are not listed; calls are re-checked for long-lived stdio.
+  for (const tool of tools.filter((t) => allowed(policy, t))) {
     server.registerTool(
       tool.name,
       {
@@ -24,9 +35,49 @@ function createMcp(auth: AuthContext = {}) {
         },
       },
       async (input: Record<string, unknown>) => {
+        const started = Date.now();
+        const base = {
+          time: new Date(started).toISOString(),
+          tool: tool.name,
+          risk: tool.risk,
+          transport: context.transport,
+          userAgent: context.userAgent,
+        };
+        if (!allowed(loadPolicy(), tool)) {
+          record({ ...base, outcome: 'denied', durationMs: 0 }, input);
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Tool ${tool.name} is disabled by .hive/policy.json.`,
+              },
+            ],
+          };
+        }
+        const observed: { status?: number } = {};
         try {
-          return await execute(tool, input, auth);
+          const result = await execute(tool, input, context.auth, undefined, observed);
+          record(
+            {
+              ...base,
+              outcome: result.isError ? 'app_error' : 'ok',
+              status: observed.status,
+              durationMs: Date.now() - started,
+            },
+            input,
+          );
+          return result;
         } catch {
+          record(
+            {
+              ...base,
+              outcome: 'failed',
+              status: observed.status,
+              durationMs: Date.now() - started,
+            },
+            input,
+          );
           return {
             isError: true,
             content: [
@@ -43,21 +94,27 @@ function createMcp(auth: AuthContext = {}) {
   return server;
 }
 if (process.argv.includes('--stdio')) {
-  await createMcp().connect(new StdioServerTransport());
+  await createMcp({ transport: 'stdio' }).connect(new StdioServerTransport());
 } else {
   const port = Number(process.env.HIVE_MCP_PORT ?? 3333);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('HIVE_MCP_PORT must be 1–65535');
+  // Remote access (for example through a tunnel) is opt-in and always requires a strong token.
+  const remoteHosts = list(process.env.HIVE_ALLOWED_HOSTS);
+  const remoteOrigins = list(process.env.HIVE_ALLOWED_ORIGINS);
+  if (remoteHosts.length && (process.env.HIVE_MCP_TOKEN ?? '').length < 24)
+    throw new Error(
+      'HIVE_ALLOWED_HOSTS requires HIVE_MCP_TOKEN of at least 24 characters (for example: openssl rand -hex 24).',
+    );
+  const hosts = [`127.0.0.1:${port}`, `localhost:${port}`, ...remoteHosts];
+  const origins = [`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...remoteOrigins];
   const server = createServer(async (req, res) => {
-    // Loopback binding + exact Host and Origin checks protect this local endpoint.
-    if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(req.headers.host ?? '')) {
+    // Loopback binding + exact Host and Origin checks protect this endpoint from DNS rebinding.
+    if (!hosts.includes((req.headers.host ?? '').toLowerCase())) {
       res.writeHead(403).end();
       return;
     }
-    if (
-      req.headers.origin &&
-      ![`http://127.0.0.1:${port}`, `http://localhost:${port}`].includes(req.headers.origin)
-    ) {
+    if (req.headers.origin && !origins.includes(req.headers.origin.toLowerCase())) {
       res.writeHead(403).end();
       return;
     }
@@ -100,8 +157,12 @@ if (process.argv.includes('--stdio')) {
       }
       // A separate MCP access token is never forwarded as an application credential.
       mcp = createMcp({
-        authorization: credential ? undefined : req.headers.authorization,
-        cookie: req.headers.cookie,
+        transport: 'http',
+        userAgent: req.headers['user-agent'],
+        auth: {
+          authorization: credential ? undefined : req.headers.authorization,
+          cookie: req.headers.cookie,
+        },
       });
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
@@ -125,7 +186,9 @@ if (process.argv.includes('--stdio')) {
     process.exitCode = 1;
   });
   server.listen(port, '127.0.0.1', () =>
-    console.error(`Hive MCP: http://127.0.0.1:${port}/mcp (${tools.length} tools)`),
+    console.error(
+      `Hive MCP: http://127.0.0.1:${port}/mcp (${tools.length} tools)${remoteHosts.length ? ` · also accepting ${remoteHosts.join(', ')} with token` : ''}`,
+    ),
   );
   for (const signal of ['SIGTERM', 'SIGINT'])
     process.on(signal, () => {

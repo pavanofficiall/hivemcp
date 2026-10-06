@@ -59,6 +59,7 @@ export async function execute(
   input: Record<string, unknown>,
   auth: AuthContext = {},
   strategy: AuthStrategy = new ApplicationAuth(),
+  observed: { status?: number } = {},
 ) {
   const timeout = Number(process.env.HIVE_HTTP_TIMEOUT_MS ?? 15000);
   if (!Number.isInteger(timeout) || timeout < 1 || timeout > 120000)
@@ -75,6 +76,7 @@ export async function execute(
       ...strategy.headers(auth),
     },
   });
+  observed.status = response.status;
   if (response.status >= 300 && response.status < 400) {
     await response.body?.cancel();
     throw new Error(

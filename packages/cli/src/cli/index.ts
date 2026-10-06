@@ -11,6 +11,8 @@ import { generate, readPrevious, readServed, addPackageScript } from '../generat
 import { diffCapabilities } from '../capabilities/build.js';
 import { VERSION } from '../version.js';
 import { planSync } from '../capabilities/sync.js';
+import { listTools, setTool, setMode, readPolicy, allowed } from './tools.js';
+import { showLogs } from './logs.js';
 export async function run(command: string, args: string[], cwd: string) {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: 'inherit', shell: false });
@@ -238,6 +240,38 @@ program
   .option('--accept-changed', 'Re-approve approved tools whose definition changed')
   .option('--install', 'Install generated server dependencies')
   .action(syncCommand);
+const tools = program
+  .command('tools')
+  .description('List generated tools and their permissions (.hive/policy.json)')
+  .option('-C, --cwd <directory>', 'Application root', process.cwd())
+  .action((options) => listTools(options.cwd));
+const toolsCwd = (options: { cwd?: string }) => options.cwd ?? tools.opts().cwd;
+tools
+  .command('enable <name>')
+  .description('Allow a generated tool')
+  .option('-C, --cwd <directory>', 'Application root')
+  .action((name, options) => setTool(toolsCwd(options), name, true));
+tools
+  .command('disable <name>')
+  .description('Hide and refuse a generated tool')
+  .option('-C, --cwd <directory>', 'Application root')
+  .action((name, options) => setTool(toolsCwd(options), name, false));
+tools
+  .command('mode <mode>')
+  .description('Set server mode: all, read-only (reads only) or off (no tools)')
+  .option('-C, --cwd <directory>', 'Application root')
+  .action((mode, options) => setMode(toolsCwd(options), mode));
+program
+  .command('logs')
+  .description('Show recorded agent tool calls (.hive/logs/actions.jsonl)')
+  .option('-C, --cwd <directory>', 'Application root', process.cwd())
+  .option('--tool <name>', 'Only this tool')
+  .option('--errors', 'Only calls that did not succeed')
+  .option('--since <time>', 'Only calls since 30m, 2h, 7d or an ISO date')
+  .option('--limit <n>', 'Show the latest n calls', '50')
+  .option('--json', 'Print raw JSON lines')
+  .option('-f, --follow', 'Keep printing new calls')
+  .action(showLogs);
 program
   .command('dev')
   .description('Launch the generated local MCP server')
@@ -272,6 +306,7 @@ program
   .command('doctor')
   .description('Check local project and generated runtime configuration')
   .option('-C, --cwd <directory>', 'Application root', process.cwd())
+  .option('--network', 'Also check that the application and the MCP server answer')
   .action(async (options) => {
     const info = await detectProject(options.cwd);
     console.log(
@@ -296,19 +331,86 @@ program
       JSON.stringify(manifest.capabilities) !== JSON.stringify(tools.map((t: any) => t.name))
     )
       throw new Error('Manifest/tool inventory mismatch. Regenerate.');
-    let configuredBase: string | undefined;
+    let fileEnv: Record<string, string | undefined> = {};
     try {
-      configuredBase = parseEnv(await readFile(path.join(dir, '.env'), 'utf8')).HIVE_APP_BASE_URL;
+      fileEnv = parseEnv(await readFile(path.join(dir, '.env'), 'utf8'));
     } catch (error: any) {
       if (error.code !== 'ENOENT') throw error;
     }
-    const base = process.env.HIVE_APP_BASE_URL ?? configuredBase ?? 'http://localhost:3000';
+    const env = (name: string) => process.env[name] ?? fileEnv[name];
+    const base = env('HIVE_APP_BASE_URL') ?? 'http://localhost:3000';
     const url = new URL(base);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
       throw new Error('Invalid HIVE_APP_BASE_URL');
+    const port = Number(env('HIVE_MCP_PORT') ?? 3333);
+    const endpoint = `http://127.0.0.1:${port}/mcp`;
     console.log(
-      `✓ Generated runtime and ${tools.length} selected tools\nApplication origin: ${url.origin}\nRuntime loads .hive/mcp/.env. Start the application separately.\nLocal MCP default: http://127.0.0.1:3333/mcp`,
+      `✓ Generated runtime and ${tools.length} selected tools\nApplication origin: ${url.origin}\nRuntime loads .hive/mcp/.env. Start the application separately.\nLocal MCP: ${endpoint}`,
     );
+    let problems = 0;
+    try {
+      const policy = await readPolicy(info.root);
+      const off = tools.filter((t: any) => !allowed(policy, t)).length;
+      console.log(
+        `✓ Policy: mode ${policy.mode}, ${tools.length - off} of ${tools.length} tools enabled`,
+      );
+    } catch (error: any) {
+      problems++;
+      console.log(`✗ ${error.message}`);
+    }
+    const token = env('HIVE_MCP_TOKEN') ?? '';
+    if (env('HIVE_ALLOWED_HOSTS')) {
+      if (token.length < 24) {
+        problems++;
+        console.log(
+          '✗ HIVE_ALLOWED_HOSTS is set but HIVE_MCP_TOKEN is missing or under 24 characters; the server will refuse to start.',
+        );
+      } else console.log(`✓ Remote hosts allowed with token: ${env('HIVE_ALLOWED_HOSTS')}`);
+    }
+    if (options.network) {
+      try {
+        const app = await fetch(url.origin, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(3000),
+        });
+        console.log(`✓ Application answered at ${url.origin} (HTTP ${app.status})`);
+      } catch {
+        problems++;
+        console.log(`✗ Application not reachable at ${url.origin}. Start it first.`);
+      }
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          signal: AbortSignal.timeout(3000),
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+              protocolVersion: '2025-06-18',
+              capabilities: {},
+              clientInfo: { name: 'hive-doctor', version: VERSION },
+            },
+          }),
+        });
+        if (response.ok) console.log(`✓ MCP server answered at ${endpoint}`);
+        else {
+          problems++;
+          console.log(
+            `✗ MCP server at ${endpoint} returned HTTP ${response.status}${response.status === 401 ? ' (check HIVE_MCP_TOKEN)' : ''}`,
+          );
+        }
+      } catch {
+        problems++;
+        console.log(`✗ MCP server not reachable at ${endpoint}. Run hive dev.`);
+      }
+    }
+    if (problems) process.exitCode = 1;
   });
 program.parseAsync().catch((error) => {
   console.error(`Hive: ${error.message}`);

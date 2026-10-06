@@ -4,6 +4,11 @@ import { createServer } from 'node:http';
 import { requestFor, execute, ApplicationAuth } from '../templates/mcp/src/adapter.js';
 import { toZod, toObject } from '../templates/mcp/src/schema.js';
 import type { Tool } from '../templates/mcp/src/types.js';
+import { loadPolicy, allowed } from '../templates/mcp/src/policy.js';
+import { record, redact } from '../templates/mcp/src/log.js';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 const tool: Tool = {
   name: 'update_widget',
   description: 'Update widget',
@@ -142,4 +147,65 @@ test('HTTP adapter forwards method/body/auth, reports failures and refuses redir
       ? delete process.env.HIVE_APP_BASE_URL
       : (process.env.HIVE_APP_BASE_URL = old);
   }
+});
+test('policy fails closed, hides denied tools and read-only mode blocks writes', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'hive-policy-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'policy.json');
+  const read = { name: 'search_widgets', risk: 'read' as const };
+  const write = { name: 'update_widget', risk: 'write' as const };
+  const missing = loadPolicy(file);
+  assert.deepEqual(missing, { mode: 'all', tools: {} });
+  assert.ok(allowed(missing, read) && allowed(missing, write));
+  await writeFile(file, JSON.stringify({ tools: { update_widget: 'deny' } }));
+  assert.equal(allowed(loadPolicy(file), write), false);
+  assert.equal(allowed(loadPolicy(file), read), true);
+  await writeFile(file, JSON.stringify({ mode: 'read-only', tools: { update_widget: 'allow' } }));
+  assert.equal(allowed(loadPolicy(file), write), false);
+  assert.equal(allowed(loadPolicy(file), read), true);
+  await writeFile(file, '{ not json');
+  const broken = loadPolicy(file);
+  assert.equal(broken.mode, 'off');
+  assert.match(broken.error!, /all tools are disabled/);
+  assert.equal(allowed(broken, read), false);
+  await writeFile(file, JSON.stringify({ mode: 'everything' }));
+  assert.equal(loadPolicy(file).mode, 'off');
+});
+test('action log redacts secrets, truncates values and can omit arguments', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'hive-log-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'logs/actions.jsonl');
+  const saved = { file: process.env.HIVE_LOG_FILE, args: process.env.HIVE_LOG_ARGS };
+  t.after(() => {
+    process.env.HIVE_LOG_FILE = saved.file;
+    process.env.HIVE_LOG_ARGS = saved.args;
+    if (saved.file === undefined) delete process.env.HIVE_LOG_FILE;
+    if (saved.args === undefined) delete process.env.HIVE_LOG_ARGS;
+  });
+  assert.deepEqual(redact({ body: { password: 'x', apiKey: 'y', note: 'a'.repeat(300) } }), {
+    body: { password: '[redacted]', apiKey: '[redacted]', note: 'a'.repeat(200) + '…' },
+  });
+  process.env.HIVE_LOG_FILE = file;
+  delete process.env.HIVE_LOG_ARGS;
+  const entry = {
+    time: '2026-10-06T10:00:00.000Z',
+    tool: 'update_widget',
+    risk: 'write',
+    outcome: 'ok' as const,
+    status: 200,
+    durationMs: 12,
+    transport: 'http' as const,
+  };
+  record(entry, { path: { id: 'w1' }, body: { sessionToken: 'secret-value' } });
+  process.env.HIVE_LOG_ARGS = 'off';
+  record({ ...entry, outcome: 'denied' }, { path: { id: 'w2' } });
+  const lines = (await readFile(file, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  assert.equal(lines.length, 2);
+  assert.deepEqual(lines[0].args, { path: { id: 'w1' }, body: { sessionToken: '[redacted]' } });
+  assert.equal(lines[1].outcome, 'denied');
+  assert.equal('args' in lines[1], false);
+  assert.ok(!(await readFile(file, 'utf8')).includes('secret-value'));
 });

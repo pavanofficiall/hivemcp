@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, cp, rm, readFile, symlink, access } from 'node:fs/promises';
+import { mkdtemp, cp, rm, readFile, writeFile, symlink, access } from 'node:fs/promises';
+import { request } from 'node:http';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -235,6 +236,114 @@ test(
       ).status,
       400,
     );
+    // Every agent call is in the action log, with app status and redaction-safe arguments.
+    const actions = (await readFile(path.join(root, '.hive/logs/actions.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(
+      actions.map((a) => [a.tool, a.outcome, a.status]),
+      [
+        ['launch_sequence', 'app_error', 403],
+        ['search_contacts', 'ok', 200],
+        ['launch_sequence', 'ok', 200],
+        ['create_contact', 'ok', 201],
+      ],
+    );
+    assert.equal(actions[3].args.body.lastName, 'Hopper');
+    // A policy edit applies on the next request without a restart.
+    await writeFile(
+      path.join(root, '.hive/policy.json'),
+      JSON.stringify({ mode: 'all', tools: { launch_sequence: 'deny' } }),
+    );
+    const restricted = new Client({ name: 'hive-policy-test', version: '1.0' });
+    await restricted.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
+    try {
+      const names = (await restricted.listTools()).tools.map((tool) => tool.name);
+      assert.ok(!names.includes('launch_sequence'));
+      assert.ok(names.includes('search_contacts'));
+      const refused = await restricted.callTool({
+        name: 'launch_sequence',
+        arguments: { path: { id: 'seq_123' }, body: { confirm: true } },
+      });
+      assert.equal(refused.isError, true);
+    } finally {
+      await restricted.close();
+    }
+    assert.equal(
+      (await fetch(appUrl + '/api/sequences/seq_123').then((r) => r.json())).launches,
+      1,
+    );
+    await writeFile(path.join(root, '.hive/policy.json'), JSON.stringify({ mode: 'read-only' }));
+    const readOnly = new Client({ name: 'hive-read-only-test', version: '1.0' });
+    await readOnly.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
+    try {
+      assert.deepEqual((await readOnly.listTools()).tools.map((tool) => tool.name).sort(), [
+        'get_sequence',
+        'search_contacts',
+      ]);
+    } finally {
+      await readOnly.close();
+    }
+    await rm(path.join(root, '.hive/policy.json'));
+    // Remote hosts are opt-in and refuse to start without a strong token.
+    const remoteHost = 'demo-tunnel.example.test';
+    await assert.rejects(
+      command(process.execPath, ['dist/server.js'], serverDir, {
+        ...runtimeEnv,
+        HIVE_MCP_PORT: String(await freePort()),
+        HIVE_ALLOWED_HOSTS: remoteHost,
+      }),
+      /HIVE_ALLOWED_HOSTS requires HIVE_MCP_TOKEN/,
+    );
+    const remotePort = await freePort();
+    const remoteToken = 'r'.repeat(32);
+    const remote = start(process.execPath, ['dist/server.js'], serverDir, {
+      ...runtimeEnv,
+      HIVE_MCP_PORT: String(remotePort),
+      HIVE_ALLOWED_HOSTS: remoteHost,
+      HIVE_MCP_TOKEN: remoteToken,
+    });
+    children.push(remote.child);
+    await ready(`http://127.0.0.1:${remotePort}/mcp`, remote, 401);
+    const viaHost = (host: string, authorization?: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = request(
+          {
+            host: '127.0.0.1',
+            port: remotePort,
+            path: '/mcp',
+            method: 'POST',
+            headers: {
+              host,
+              'content-type': 'application/json',
+              accept: 'application/json, text/event-stream',
+              ...(authorization ? { authorization } : {}),
+            },
+          },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          },
+        );
+        req.on('error', reject);
+        req.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+              protocolVersion: '2025-06-18',
+              capabilities: {},
+              clientInfo: { name: 'tunnel-test', version: '1.0' },
+            },
+          }),
+        );
+      });
+    assert.equal(await viaHost(remoteHost, `Bearer ${remoteToken}`), 200);
+    assert.equal(await viaHost(remoteHost), 401);
+    assert.equal(await viaHost('attacker.example.test', `Bearer ${remoteToken}`), 403);
+    await stop(remote.child);
     const stdio = new Client({ name: 'stdio-test', version: '1.0' });
     await stdio.connect(
       new StdioClientTransport({

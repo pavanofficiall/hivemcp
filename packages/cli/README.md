@@ -56,10 +56,15 @@ To inspect a separate application before generating anything, run `node /path/to
 | `hive sync`                                          | Re-scan and bring the generated server up to date                     |
 | `hive sync --check`                                  | Report drift and exit 1 if out of date (CI); no writes                |
 | `hive sync --accept-changed`                         | Non-interactively re-approve approved tools whose definition changed  |
+| `hive tools`                                         | List generated tools with risk and enabled/disabled status            |
+| `hive tools disable create_contact`                  | Hide and refuse a tool (`enable` reverses it); no restart needed      |
+| `hive tools mode read-only`                          | Server mode: `all`, `read-only` (reads only) or `off` (no tools)      |
+| `hive logs`                                          | Latest agent tool calls; `--tool`, `--errors`, `--since 2h`, `-f`     |
 | `hive dev`                                           | Start the generated Streamable HTTP server                            |
 | `hive dev --stdio`                                   | Start it with clean stdio transport                                   |
 | `hive inspect`                                       | Show generated manifest and candidates                                |
 | `hive doctor`                                        | Check project, generated files, dependencies and manifest consistency |
+| `hive doctor --network`                              | Also check that the application and the MCP server answer             |
 
 Every command accepts `-C /application/root`. Without a terminal, generation requires an explicit `--select` or `--read-only`. `--select ''` generates an empty tool set. There is no automatic “expose all” mode.
 
@@ -140,10 +145,24 @@ That example is discovered from the test fixture. Inspect each application's gen
 | `HIVE_FORWARD_AUTH`     | Set `true` to forward incoming Authorization/Cookie headers                              |
 | `HIVE_MCP_TOKEN`        | Optional bearer credential protecting the local MCP endpoint; never forwarded to the app |
 | `HIVE_HTTP_TIMEOUT_MS`  | 1–120000 ms; default 15000                                                               |
+| `HIVE_ALLOWED_HOSTS`    | Extra accepted Host values, e.g. a tunnel hostname; requires a 24+ character token       |
+| `HIVE_ALLOWED_ORIGINS`  | Extra accepted browser Origins (exact match)                                             |
+| `HIVE_LOG`              | `off` disables the action log                                                            |
+| `HIVE_LOG_ARGS`         | `off` records calls without their arguments                                              |
 
-The adapter validates inputs, encodes path segments, serializes query/body values, applies its `AuthStrategy`, calls the fixed API, and returns text plus structured MCP results. Authentication/HTTP failures become tool errors. It refuses redirects and dot path segments, caps responses at 2 MB, and enforces timeouts. HTTP binds to loopback with Host and Origin checks. This is a local single-user runtime, not production OAuth.
+The adapter validates inputs, encodes path segments, serializes query/body values, applies its `AuthStrategy`, calls the fixed API, and returns text plus structured MCP results. Authentication/HTTP failures become tool errors. It refuses redirects and dot path segments, caps responses at 2 MB, and enforces timeouts. HTTP binds to loopback with Host and Origin checks (see remote access below). This is a single-user runtime, not production OAuth.
 
 `hive dev` and generated npm scripts load `.hive/mcp/.env`. For a process-spawned stdio client, launch `node --env-file-if-exists=.env dist/server.js --stdio` from `.hive/mcp` after building. Avoid npm wrappers when the client requires clean stdout. No diagnostic logs are written to stdio stdout.
+
+## Permissions and action log
+
+`.hive/policy.json` is developer-owned: regeneration never touches it, so commit it with your app. It holds a server `mode` (`all`, `read-only`, `off`) and per-tool `allow`/`deny` entries; `hive tools` edits it. The HTTP server re-reads it on every request, so changes apply immediately: denied tools disappear from `tools/list` and calls to them are refused. Long-lived stdio clients keep their tool list until restarted but are still refused at call time. A policy file that cannot be parsed disables every tool until it is fixed.
+
+Every tool call the server handles is appended to `.hive/logs/actions.jsonl` (git-ignored, rotated at 10 MB): time, tool, risk, outcome (`ok`, `app_error`, `failed`, `denied`), application HTTP status, duration, transport and User-Agent. Arguments are recorded with values under secret-looking keys (token, password, secret, authorization, cookie, API key, credential, session) replaced by `[redacted]` and long strings truncated. Calls rejected by input validation before reaching the tool are not recorded. Agent identity is limited to the User-Agent header for now.
+
+## Remote access through a tunnel
+
+The server always binds to `127.0.0.1`. To reach it through a tunnel (for a web chat client), set `HIVE_ALLOWED_HOSTS` to the tunnel hostname and `HIVE_MCP_TOKEN` to a random value of at least 24 characters (`openssl rand -hex 24`); the server refuses to start with the first and not the second. Clients must send `Authorization: Bearer <token>`. This is a single shared token for private testing, not per-user OAuth.
 
 ## Re-scan and ownership
 
