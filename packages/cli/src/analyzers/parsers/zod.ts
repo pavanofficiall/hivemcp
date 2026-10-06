@@ -79,6 +79,9 @@ export function parseZod(
   if (['optional', 'default'].includes(method)) return { ...parsed, optional: true };
   if (method === 'nullable') return { ...parsed, schema: { anyOf: [schema, { type: 'null' }] } };
   if (method === 'array') return { ...parsed, schema: { type: 'array', items: schema } };
+  // Trimming changes the value the application receives, but not its JSON type.
+  // The existing API still performs the actual trim and post-trim validation.
+  if (method === 'trim' && schema.type === 'string') return { ...parsed, schema };
   if (['email', 'uuid', 'url'].includes(method))
     return { ...parsed, schema: { ...schema, format: method === 'url' ? 'uri' : method } };
   if (method === 'int') return { ...parsed, schema: { ...schema, type: 'integer' } };

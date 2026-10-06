@@ -29,20 +29,37 @@ function isRequestJson(node: Node) {
   return !!receiver && Node.isParameterDeclaration(receiver);
 }
 // Follow local bindings to establish which request input a parse() consumes.
-function origin(node: Node | undefined, seen = new Set<Node>()): 'body' | 'query' | undefined {
+function origin(
+  node: Node | undefined,
+  scope: Node,
+  seen = new Set<Node>(),
+): 'body' | 'query' | undefined {
   if (!node || seen.has(node) || seen.size > 30) return;
   seen.add(node);
   if (Node.isAwaitExpression(node) || Node.isParenthesizedExpression(node))
-    return origin(node.getExpression(), seen);
+    return origin(node.getExpression(), scope, seen);
   if (Node.isIdentifier(node)) {
     const decl = declarationOf(node);
-    if (decl && Node.isVariableDeclaration(decl)) return origin(decl.getInitializer(), seen);
+    if (decl && Node.isVariableDeclaration(decl)) {
+      if (decl.getInitializer()) return origin(decl.getInitializer(), scope, seen);
+      // A common route pattern declares `let body` before assigning request.json()
+      // inside a try/catch. Only follow a single, unambiguous assignment.
+      const assignments = scope.getDescendantsOfKind(SyntaxKind.BinaryExpression).filter((expr) => {
+        const left = expr.getLeft();
+        return (
+          expr.getOperatorToken().getKind() === SyntaxKind.EqualsToken &&
+          Node.isIdentifier(left) &&
+          declarationOf(left) === decl
+        );
+      });
+      if (assignments.length === 1) return origin(assignments[0].getRight(), scope, seen);
+    }
   }
   if (Node.isCallExpression(node)) {
     const expr = node.getExpression();
     if (isRequestJson(node)) return 'body';
     for (const arg of node.getArguments()) {
-      const found = origin(arg, new Set(seen));
+      const found = origin(arg, scope, new Set(seen));
       if (found) return found;
     }
   }
@@ -108,7 +125,7 @@ export function extractEndpoints(
             s.name === decl.getName() &&
             s.file === relative(decl.getSourceFile().getFilePath()),
         );
-        const input = origin(call.getArguments()[0]);
+        const input = origin(call.getArguments()[0], node);
         if (found) {
           linked.push(found);
           if (input === 'body') bodies.push(found);
@@ -127,7 +144,7 @@ export function extractEndpoints(
         if (
           !Node.isPropertyAccessExpression(expr) ||
           !['get', 'getAll', 'has'].includes(expr.getName()) ||
-          origin(expr.getExpression()) !== 'query'
+          origin(expr.getExpression(), node) !== 'query'
         )
           continue;
         const arg = call.getArguments()[0];

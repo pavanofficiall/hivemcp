@@ -4,6 +4,7 @@ import * as prompts from '@clack/prompts';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { parseEnv } from 'node:util';
 import { scan } from '../scanner/scan.js';
 import { exists, detectProject } from '../scanner/project.js';
 import { generate, readPrevious, addPackageScript } from '../generator/project.js';
@@ -38,7 +39,7 @@ async function scanCommand(options: Options) {
     return;
   }
   console.log(
-    `Hive v0.1\n\n✓ ${result.application.name}: Next.js + TypeScript + App Router\n✓ ${result.files} source files indexed\n✓ ${result.endpoints.length} API operations, ${result.schemas.length} schemas, ${result.services.length} service functions, ${result.models.length} Prisma models/enums\nZod: ${result.application.zod ? 'detected' : 'not declared'} · Prisma: ${result.application.prisma ? 'detected' : 'not detected'}`,
+    `Hive v0.0.2\n\n✓ ${result.application.name}: Next.js + TypeScript + App Router\n✓ ${result.files} source files indexed\n✓ ${result.endpoints.length} API operations, ${result.schemas.length} schemas, ${result.services.length} service functions, ${result.models.length} Prisma models/enums\nZod: ${result.application.zod ? 'detected' : 'not declared'} · Prisma: ${result.application.prisma ? 'detected' : 'not detected'}`,
   );
   const previous = await readPrevious(result.application.root);
   const diff = diffCapabilities(previous, result.candidates);
@@ -118,7 +119,7 @@ if (major < 22 || (major === 22 && minor < 12)) {
 }
 const program = new Command()
   .name('hive')
-  .version('0.1.0')
+  .version('0.0.2')
   .description('Discover application capabilities and generate a local MCP server');
 for (const name of ['scan', 'generate'])
   program
@@ -197,12 +198,19 @@ program
       JSON.stringify(manifest.capabilities) !== JSON.stringify(tools.map((t: any) => t.name))
     )
       throw new Error('Manifest/tool inventory mismatch. Regenerate.');
-    const base = process.env.HIVE_APP_BASE_URL ?? 'http://localhost:3000';
+    let configuredBase: string | undefined;
+    try {
+      configuredBase = parseEnv(await readFile(path.join(dir, '.env'), 'utf8'))
+        .HIVE_APP_BASE_URL;
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    const base = process.env.HIVE_APP_BASE_URL ?? configuredBase ?? 'http://localhost:3000';
     const url = new URL(base);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
       throw new Error('Invalid HIVE_APP_BASE_URL');
     console.log(
-      `✓ Generated runtime and ${tools.length} selected tools\nApplication origin (shell/default): ${url.origin}\nRuntime also loads .hive/mcp/.env. Start the application separately.\nLocal MCP default: http://127.0.0.1:3333/mcp`,
+      `✓ Generated runtime and ${tools.length} selected tools\nApplication origin: ${url.origin}\nRuntime loads .hive/mcp/.env. Start the application separately.\nLocal MCP default: http://127.0.0.1:3333/mcp`,
     );
   });
 program.parseAsync().catch((error) => {

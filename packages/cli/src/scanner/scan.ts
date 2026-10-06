@@ -18,7 +18,7 @@ export async function scan(directory: string) {
   const warnings: string[] = [];
   if (config.config?.extends)
     warnings.push(
-      'Inherited tsconfig aliases are not resolved in v0.1; declare paths locally if needed.',
+      'Inherited tsconfig aliases are not resolved in v0.0.2; declare paths locally if needed.',
     );
   const project = new Project({
     useInMemoryFileSystem: true,

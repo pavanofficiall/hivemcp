@@ -68,6 +68,13 @@ test('unsupported transforms and non-Zod factories remain partial', () => {
   assert.equal(zod('validator.string().transform(v => v.length)').supported, false);
   assert.equal(zod('other.object({})').supported, false);
 });
+test('Zod trim preserves string validation and leaves normalization to the application', () => {
+  const result = zod('validator.string().trim().min(1).max(120)');
+  assert.equal(result.supported, true);
+  assert.equal(result.schema.type, 'string');
+  assert.equal(result.schema.minLength, 1);
+  assert.equal(result.schema.maxLength, 120);
+});
 test('Prisma supporting context includes relations, optional fields and enums', () => {
   const models = parsePrisma(
     'model Company {\nid String @id\ncontacts Contact[]\n}\nenum State {\nDRAFT\nLIVE\n}',
@@ -132,6 +139,27 @@ test('query schemas are mapped to query, not body, and named export aliases work
   const c = result.candidates.find((c) => c.name === 'search_invoices')!;
   assert.equal(c.supported, true);
   assert.deepEqual(c.inputSchema.properties?.query.required, ['status']);
+});
+test('body schema follows a single assignment inside try/catch', async (t) => {
+  const root = await copied(t);
+  const dir = path.join(root, 'app/api/tasks');
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    path.join(dir, 'route.ts'),
+    `import { z } from 'zod';
+const CreateTaskSchema = z.object({ title: z.string().trim().min(1) });
+export async function POST(request: Request) {
+  let raw: unknown;
+  try { raw = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+  const parsed = CreateTaskSchema.safeParse(raw);
+  if (!parsed.success) return Response.json({ error: 'Invalid task' }, { status: 400 });
+  return Response.json(parsed.data);
+}`,
+  );
+  const result = await scan(root);
+  const candidate = result.candidates.find((c) => c.name === 'create_task')!;
+  assert.equal(candidate.supported, true);
+  assert.equal(candidate.inputSchema.properties?.body.properties?.title.minLength, 1);
 });
 test('service correlation does not match unrelated methods with identical names', async (t) => {
   const root = await copied(t);

@@ -1,26 +1,21 @@
-# Hive CLI v0.1
+# Hive CLI v0.0.2
 
 Turn an existing **TypeScript + Next.js App Router** application into a local, inspectable MCP server. Analysis is deterministic and runs without API keys. The generated tools call existing REST APIs, preserving application authorization, validation and business logic.
 
 This standalone package is `@usehive/cli`; its executable is `hive`. The other code in this repository predates the CLI and is not a dependency of the package. No dashboard, database server, cloud integration or model provider is needed.
 
-## Local setup
+The CLI and its generated templates are available under the MIT license; see [LICENSE](./LICENSE).
 
-Node 22.12+ is required. From this repository:
+## Quickstart
 
-```sh
-npm install --prefix packages/cli
-npm run hive:build
-node packages/cli/dist/cli/index.js --help
-npm run hive:test
-```
-
-To run on a separate application immediately:
+Node 22.12+ is required. In the root of an existing TypeScript Next.js App Router application, run:
 
 ```sh
-cd /path/to/orbit-crm
-node /Users/pavan/nexaworks/hiveMCP/packages/cli/dist/cli/index.js scan --install
+npx @usehive/cli scan --dry-run
+npx @usehive/cli scan --install
 ```
+
+The first command previews discovered capabilities without changing files. The second opens an interactive review, generates the approved MCP tools, and installs the generated server's dependencies. You can also install the CLI with `npm install -g @usehive/cli` and then use `hive scan`.
 
 Select the capabilities to expose. Reads start selected; writes and destructive operations start unselected. Selection shows the method, route, risk, confidence and detected permission evidence. Unsupported candidates remain in the inventory with manual-review explanations and cannot be selected.
 
@@ -30,20 +25,21 @@ Start the application normally. Configure its origin and existing auth in `.hive
 npm run hive:mcp
 ```
 
-The MCP endpoint is **http://127.0.0.1:3333/mcp**, separate from the application's default port 3000. The app's existing `hive:mcp` script, if any, is preserved; the CLI prints a direct alternative.
+The MCP endpoint is **http://127.0.0.1:3333/mcp**, separate from the application's port. The app's existing `hive:mcp` script, if any, is preserved; the CLI prints a direct alternative.
 
-## Package installation and npx
+Start your application as usual. Copy `.hive/mcp/.env.example` to `.hive/mcp/.env` and set `HIVE_APP_BASE_URL` to the application's origin. Add an application credential there if its API requires one. Then run `npm run hive:mcp` from the application root, or `npx @usehive/cli dev`. Connect a local MCP client to `http://127.0.0.1:3333/mcp` using Streamable HTTP. The generated server runs locally and only exposes tools you approved during review.
 
-The npm package is configured for `npx @usehive/cli scan` once published. **This work does not publish it or claim that the registry name is available.** Test the actual package locally:
+## Develop this CLI from source
+
+From the repository root:
 
 ```sh
-cd /Users/pavan/nexaworks/hiveMCP/packages/cli
-npm pack
-cd /path/to/orbit-crm
-npx --yes --package=/Users/pavan/nexaworks/hiveMCP/packages/cli/usehive-cli-0.1.0.tgz hive scan --install
+npm install --prefix packages/cli
+npm run hive:build
+npm run hive:test
 ```
 
-Or install that tarball globally and use `hive scan`. `npm hive scan` is not a supported invocation.
+To inspect a separate application before generating anything, run `node /path/to/hivemcp-v2/packages/cli/dist/cli/index.js scan --dry-run` from that application's root. `npm hive scan` is not a supported invocation.
 
 ## Commands
 
@@ -128,7 +124,7 @@ Inputs have separate `path`, `query`, and `body` objects. This prevents collisio
 }
 ```
 
-That example is discovered from the test fixture. It is not a promise about Orbit's names or schemas; inspect Orbit's generated `src/tools.json` first.
+That example is discovered from the test fixture. Inspect each application's generated `src/tools.json` for its actual names and schemas.
 
 ## Runtime and authentication
 
@@ -173,6 +169,6 @@ The monorepo's installed Next.js supplies the integration fixture runtime. Insta
 - Naming uses English singularization heuristics. Confidence/risk labels need human review, especially GET routes with hidden side effects.
 - Indexing is limited to 3,000 files / 20 MB, with a 256 KB per-file cap; generated and oversized files are skipped.
 - `doctor` checks local structure/configuration, not authentication validity or every API's health. Developer edits to generated code are protected but not merged.
-- Orbit CRM has not been scanned without its path. The package is not published.
+- A separate Todo app was scanned and exercised through MCP locally. This verifies a real local integration, not arbitrary applications or hosted multi-user deployment.
 
-For v0.2, validate against Orbit and a second independent Next.js application; improve alias/re-export and request-to-service schema tracing based on observed gaps, and add reviewed per-capability mapping overrides. Keep the same existing-API execution path and repeatable MCP contract tests.
+For a later release, validate against more independent applications; improve alias/re-export and request-to-service schema tracing based on observed gaps, and add reviewed per-capability mapping overrides. Keep the same existing-API execution path and repeatable MCP contract tests.

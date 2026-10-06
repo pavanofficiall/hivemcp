@@ -1,4 +1,15 @@
-# Hive CLI v0.1 verification
+# Hive CLI verification
+
+## Version 0.0.2 — Todo app
+
+- `hive --version` reports `0.0.2`; the CLI package, lockfile, generated package, and MCP server metadata use the same version.
+- CLI typecheck and build passed; 21 CLI tests passed, including real Next.js and MCP SDK integration.
+- A scan of `/Users/pavan/nexaworks/todo-demo` found three supported tools: `search_todos`, `create_todo`, and `complete_todo`.
+- The generated Todo MCP package built and its three mapping tests passed. `hive doctor` passed.
+- A Streamable HTTP MCP client listed all three tools, created a task through `create_todo`, and completed it through `complete_todo`. Independent reads from the Todo app API confirmed both changes were stored in SQLite. The temporary verification task was removed afterward.
+- `npm pack --dry-run` reported `@usehive/cli@0.0.2` with the executable and runtime template included. The package has not been published.
+
+## Previous v0.1 verification
 
 Verified locally on 2026-09-23 with Node.js 22.12.0.
 
