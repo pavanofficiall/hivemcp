@@ -16,6 +16,7 @@ import {
   diffCapabilities,
 } from '../src/capabilities/build.js';
 import { generate, addPackageScript } from '../src/generator/project.js';
+import { VERSION } from '../src/version.js';
 const fixture = path.resolve('tests/fixtures/tiny-crm');
 async function copied(t: any) {
   const root = await mkdtemp(path.join(tmpdir(), 'hive-unit-'));
@@ -198,6 +199,14 @@ test('generation is repeatable, protects modified/unowned code and preserves scr
   await generate(result, chosen);
   const manifest = JSON.parse(await readFile(path.join(root, '.hive/manifest.json'), 'utf8'));
   assert.deepEqual(manifest.capabilities, ['get_sequence', 'search_contacts']);
+  const ownPackage = JSON.parse(await readFile(path.resolve('package.json'), 'utf8'));
+  assert.equal(VERSION, ownPackage.version);
+  assert.equal(manifest.version, VERSION);
+  const runtime = JSON.parse(await readFile(path.join(root, '.hive/mcp/package.json'), 'utf8'));
+  assert.equal(runtime.version, VERSION);
+  const server = await readFile(path.join(root, '.hive/mcp/src/server.ts'), 'utf8');
+  assert.ok(server.includes(`version: '${VERSION}'`));
+  assert.ok(!server.includes('{{HIVE_VERSION}}'));
   await addPackageScript(root);
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts.dev, 'next dev --hostname 127.0.0.1');

@@ -35,7 +35,7 @@ export async function detectProject(directory: string): Promise<ProjectInfo> {
     !(await exists(path.join(root, appDirectory)))
   ) {
     throw new Error(
-      `Hive v0.0.2 supports Next.js + TypeScript + App Router. ${deps.next ? 'This project is missing tsconfig.json or an app directory.' : 'This project does not declare Next.js.'}`,
+      `Hive supports Next.js + TypeScript + App Router. ${deps.next ? 'This project is missing tsconfig.json or an app directory.' : 'This project does not declare Next.js.'}`,
     );
   }
   const entries = await readdir(root);
@@ -98,7 +98,7 @@ export async function indexFiles(root: string) {
       bytes += stat.size;
       if (bytes > 20_000_000 || files.length >= 3000)
         throw new Error(
-          'Repository exceeds v0.0.2 analysis limit (3,000 files / 20 MB). Scan one application package.',
+          'Repository exceeds the analysis limit (3,000 files / 20 MB). Scan one application package.',
         );
       const content = await readFile(absolute, 'utf8');
       if (

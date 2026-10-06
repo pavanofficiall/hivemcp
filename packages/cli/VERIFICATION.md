@@ -7,7 +7,7 @@
 - A scan of `/Users/pavan/nexaworks/todo-demo` found three supported tools: `search_todos`, `create_todo`, and `complete_todo`.
 - The generated Todo MCP package built and its three mapping tests passed. `hive doctor` passed.
 - A Streamable HTTP MCP client listed all three tools, created a task through `create_todo`, and completed it through `complete_todo`. Independent reads from the Todo app API confirmed both changes were stored in SQLite. The temporary verification task was removed afterward.
-- `npm pack --dry-run` reported `@usehive/cli@0.0.2` with the executable and runtime template included. The package has not been published.
+- `npm pack --dry-run` reported `@usehive/cli@0.0.2` with the executable and runtime template included. `@usehive/cli@0.0.2` was published to npm on 2026-09-26 (registry `latest` confirmed 2026-10-06).
 
 ## Previous v0.1 verification
 
@@ -57,7 +57,7 @@ The interactive manual check separately selected `get_sequence`, `launch_sequenc
 
 These are real local API calls and real MCP protocol exchanges. The fixture uses in-memory state and a fixture-only bearer token, so no database or external credentials are required. Prisma is analyzed as supporting metadata; this does not test Prisma database execution.
 
-Orbit CRM has not been tested because its path was not provided. The package has been packed and installed locally, not published to npm. No claim is made about arbitrary applications, production authentication, hosted deployment, or unsupported framework/schema constructs.
+Orbit CRM has not been tested because its path was not provided. The package is published to npm as `@usehive/cli`. No claim is made about arbitrary applications, production authentication, hosted deployment, or unsupported framework/schema constructs.
 
 ## Reproduce
 

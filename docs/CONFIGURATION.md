@@ -44,7 +44,7 @@ GITHUB_CLIENT_SECRET=
 GITHUB_APP_PRIVATE_KEY=
 ```
 
-Do not paste credentials into chat. Set them in `/Users/pavan/NexaWorks/hiveMCP/.env` locally. The file is ignored and has owner-only permissions.
+Do not paste credentials into chat. Set them in `/Users/pavan/nexaworks/hivemcp-v2/.env` locally. The file is ignored and has owner-only permissions.
 
 ### Webhook setup when a reachable URL is available
 

@@ -9,6 +9,7 @@ import { scan } from '../scanner/scan.js';
 import { exists, detectProject } from '../scanner/project.js';
 import { generate, readPrevious, addPackageScript } from '../generator/project.js';
 import { diffCapabilities } from '../capabilities/build.js';
+import { VERSION } from '../version.js';
 export async function run(command: string, args: string[], cwd: string) {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: 'inherit', shell: false });
@@ -39,7 +40,7 @@ async function scanCommand(options: Options) {
     return;
   }
   console.log(
-    `Hive v0.0.2\n\n✓ ${result.application.name}: Next.js + TypeScript + App Router\n✓ ${result.files} source files indexed\n✓ ${result.endpoints.length} API operations, ${result.schemas.length} schemas, ${result.services.length} service functions, ${result.models.length} Prisma models/enums\nZod: ${result.application.zod ? 'detected' : 'not declared'} · Prisma: ${result.application.prisma ? 'detected' : 'not detected'}`,
+    `Hive v${VERSION}\n\n✓ ${result.application.name}: Next.js + TypeScript + App Router\n✓ ${result.files} source files indexed\n✓ ${result.endpoints.length} API operations, ${result.schemas.length} schemas, ${result.services.length} service functions, ${result.models.length} Prisma models/enums\nZod: ${result.application.zod ? 'detected' : 'not declared'} · Prisma: ${result.application.prisma ? 'detected' : 'not detected'}`,
   );
   const previous = await readPrevious(result.application.root);
   const diff = diffCapabilities(previous, result.candidates);
@@ -119,7 +120,7 @@ if (major < 22 || (major === 22 && minor < 12)) {
 }
 const program = new Command()
   .name('hive')
-  .version('0.0.2')
+  .version(VERSION)
   .description('Discover application capabilities and generate a local MCP server');
 for (const name of ['scan', 'generate'])
   program
@@ -200,8 +201,7 @@ program
       throw new Error('Manifest/tool inventory mismatch. Regenerate.');
     let configuredBase: string | undefined;
     try {
-      configuredBase = parseEnv(await readFile(path.join(dir, '.env'), 'utf8'))
-        .HIVE_APP_BASE_URL;
+      configuredBase = parseEnv(await readFile(path.join(dir, '.env'), 'utf8')).HIVE_APP_BASE_URL;
     } catch (error: any) {
       if (error.code !== 'ENOENT') throw error;
     }

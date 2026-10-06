@@ -8,14 +8,14 @@ Hive analyzes existing software, builds an application capability graph, and exp
 
 ## Workspace
 
-The entire project is in `/Users/pavan/NexaWorks/hiveMCP`. On this Mac, `/Users/pavan/nexaworks/hiveMCP` resolves to the same directory. Source downloads, dependency cache, database files, test fixtures, and screenshots live under this project; temporary analysis workspaces are under `.hive/repositories/` and are removed after a run.
+The entire project is in `/Users/pavan/nexaworks/hivemcp-v2`. Source downloads, dependency cache, database files, test fixtures, and screenshots live under this project; temporary analysis workspaces are under `.hive/repositories/` and are removed after a run.
 
 ## Run locally
 
 Prerequisites: Node.js 22.12 or newer, npm, Docker Desktop.
 
 ```sh
-cd /Users/pavan/NexaWorks/hiveMCP
+cd /Users/pavan/nexaworks/hivemcp-v2
 npm ci
 node scripts/setup-local.mjs
 npm run infra:up
