@@ -1,4 +1,4 @@
-# Hive CLI v0.0.2
+# Hive CLI v0.1.0
 
 Turn an existing **TypeScript + Next.js App Router** application into a local, inspectable MCP server. Analysis is deterministic and runs without API keys. The generated tools call existing REST APIs, preserving application authorization, validation and business logic.
 

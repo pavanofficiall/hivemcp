@@ -1,6 +1,6 @@
 {
   "name": "@usehive/cli",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Discover Next.js application capabilities and generate a local MCP server",
   "type": "module",
   "license": "MIT",
