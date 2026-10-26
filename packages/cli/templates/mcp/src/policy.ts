@@ -11,14 +11,19 @@ const modes = ['all', 'read-only', 'off'];
 export const policyFile = () =>
   process.env.HIVE_POLICY_FILE ?? fileURLToPath(new URL('../../policy.json', import.meta.url));
 // Re-read on every request so edits apply without a restart. An unreadable policy fails closed.
+// Hosted deployments have no writable .hive directory, so hive deploy passes the policy as HIVE_POLICY_JSON.
 export function loadPolicy(file = policyFile()): Policy {
   let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error: any) {
-    if (error.code === 'ENOENT') return { mode: 'all', tools: {} };
-    return { mode: 'off', tools: {}, error: `Cannot read ${file}` };
-  }
+  if (process.env.HIVE_POLICY_JSON !== undefined) {
+    text = process.env.HIVE_POLICY_JSON;
+    file = 'HIVE_POLICY_JSON';
+  } else
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch (error: any) {
+      if (error.code === 'ENOENT') return { mode: 'all', tools: {} };
+      return { mode: 'off', tools: {}, error: `Cannot read ${file}` };
+    }
   try {
     const value = JSON.parse(text);
     const mode = value.mode ?? 'all';

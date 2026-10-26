@@ -32,16 +32,21 @@ const MAX_BYTES = 10_000_000;
 // Logging must never break a tool call; failures are reported on stderr only.
 export function record(entry: Omit<ActionEntry, 'args'>, args: unknown) {
   if (process.env.HIVE_LOG === 'off') return;
+  const line: ActionEntry = {
+    ...entry,
+    ...(process.env.HIVE_LOG_ARGS === 'off' ? {} : { args: redact(args) }),
+  };
+  // Hosted deployments write to the platform log stream (for example Vercel runtime logs).
+  if (process.env.HIVE_LOG === 'stdout') {
+    console.log(JSON.stringify({ hive: 'action', ...line }));
+    return;
+  }
   try {
     const file = logFile();
     mkdirSync(path.dirname(file), { recursive: true });
     try {
       if (statSync(file).size > MAX_BYTES) renameSync(file, file.replace(/\.jsonl$/, '.1.jsonl'));
     } catch {}
-    const line: ActionEntry = {
-      ...entry,
-      ...(process.env.HIVE_LOG_ARGS === 'off' ? {} : { args: redact(args) }),
-    };
     appendFileSync(file, JSON.stringify(line) + '\n', { mode: 0o600 });
   } catch (error: any) {
     console.error(`Hive MCP: cannot write action log (${error.message})`);

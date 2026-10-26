@@ -204,9 +204,14 @@ test('generation is repeatable, protects modified/unowned code and preserves scr
   assert.equal(manifest.version, VERSION);
   const runtime = JSON.parse(await readFile(path.join(root, '.hive/mcp/package.json'), 'utf8'));
   assert.equal(runtime.version, VERSION);
-  const server = await readFile(path.join(root, '.hive/mcp/src/server.ts'), 'utf8');
-  assert.ok(server.includes(`version: '${VERSION}'`));
-  assert.ok(!server.includes('{{HIVE_VERSION}}'));
+  const core = await readFile(path.join(root, '.hive/mcp/src/mcp.ts'), 'utf8');
+  assert.ok(core.includes(`version: '${VERSION}'`));
+  for (const file of ['server.ts', 'mcp.ts', 'vercel.ts'])
+    assert.ok(
+      !(await readFile(path.join(root, '.hive/mcp/src', file), 'utf8')).includes(
+        '{{HIVE_VERSION}}',
+      ),
+    );
   await addPackageScript(root);
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts.dev, 'next dev --hostname 127.0.0.1');

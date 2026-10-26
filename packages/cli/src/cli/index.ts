@@ -13,6 +13,7 @@ import { VERSION } from '../version.js';
 import { planSync } from '../capabilities/sync.js';
 import { listTools, setTool, setMode, readPolicy, allowed } from './tools.js';
 import { showLogs } from './logs.js';
+import { deployCommand, readDeployState } from './deploy.js';
 export async function run(command: string, args: string[], cwd: string) {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: 'inherit', shell: false });
@@ -196,6 +197,9 @@ async function syncCommand(options: SyncOptions) {
   );
   const generated = await generate(result, selected);
   console.log(`\n✓ Regenerated ${generated.tools} tools · ${generated.directory}`);
+  const deployment = await readDeployState(root);
+  if (deployment?.url)
+    console.log(`! Your live server (${deployment.url}) still has the old tools. Run hive deploy to update it.`);
   if (options.install)
     await run(
       'npm',
@@ -272,6 +276,16 @@ program
   .option('--json', 'Print raw JSON lines')
   .option('-f, --follow', 'Keep printing new calls')
   .action(showLogs);
+program
+  .command('deploy')
+  .description('Host the generated MCP server on your Vercel account and print a link for Claude/ChatGPT')
+  .option('-C, --cwd <directory>', 'Application root', process.cwd())
+  .option('--app-url <url>', 'Public address of your deployed app, e.g. https://myapp.com')
+  .option('--project <name>', 'Vercel project name (default: <app>-mcp)')
+  .option('--rotate-key', 'Issue a new secret link; the old link stops working')
+  .option('--skip-checks', 'Deploy even if the live app checks fail')
+  .option('-y, --yes', 'Never prompt (for CI)')
+  .action(deployCommand);
 program
   .command('dev')
   .description('Launch the generated local MCP server')
