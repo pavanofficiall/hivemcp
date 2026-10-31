@@ -485,6 +485,6 @@ export async function deployCommand(options: DeployOptions) {
     `\nYour MCP link (keep it private — anyone with it can use these tools):\n  ${endpoint}`,
   );
   console.log(
-    `\nClaude:  Settings → Connectors → Add custom connector → paste the link → No sign-in\nChatGPT: Settings → Apps → Add custom MCP server → paste the link → No authentication\nRotate the link with hive deploy --rotate-key. Calls appear in your Vercel project's runtime logs.`,
+    `\nClaude (Free/Pro/Max): Customize → Connectors → Add custom connector → paste the link → No sign-in\nClaude (Team/Enterprise): an Owner adds it in Organization settings → Connectors → Add → Custom\nChatGPT: Settings → Apps → Add custom MCP server → paste the link → No authentication\nRotate the link with hive deploy --rotate-key. Calls appear in your Vercel project's runtime logs.`,
   );
 }

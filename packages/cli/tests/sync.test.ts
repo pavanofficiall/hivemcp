@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { scan } from '../src/scanner/scan.js';
 import { planSync, toDefinition } from '../src/capabilities/sync.js';
+import { diffSchema, diffTool } from '../src/capabilities/schema-diff.js';
 const cli = path.resolve('dist/cli/index.js');
 const fixture = path.resolve('tests/fixtures/tiny-crm');
 async function copied(t: any) {
@@ -88,7 +89,8 @@ test('hive sync detects drift, refuses silent re-approval and regenerates on req
   );
   const drift = await hive(['sync', '--check'], root);
   assert.equal(drift.code, 1, drift.output);
-  assert.match(drift.output, /~ create_contact changed \(inputSchema\)/);
+  assert.match(drift.output, /~ create_contact BREAKING/);
+  assert.match(drift.output, /✗ body\.lastName: minimum length none → 2/);
   assert.match(drift.output, /- get_sequence is gone from the app/);
   assert.match(drift.output, /\+ search_notes \[READ\] is new, not approved/);
   const before = await readFile(path.join(root, '.hive/mcp/src/tools.json'), 'utf8');
@@ -107,4 +109,76 @@ test('hive sync detects drift, refuses silent re-approval and regenerates on req
   );
   const after = await hive(['sync', '--check'], root);
   assert.equal(after.code, 0, after.output);
+});
+
+test('schema diff separates safe changes from ones that break existing agent calls', () => {
+  const object = (properties: Record<string, any>, required: string[] = []) => ({
+    type: 'object',
+    properties,
+    required,
+    additionalProperties: false,
+  });
+  const before = object(
+    {
+      title: { type: 'string', maxLength: 120 },
+      priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'] },
+      company: { type: 'string' },
+      tags: { type: 'array', items: { type: 'string' } },
+      note: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    },
+    ['title', 'company'],
+  );
+  const after = object(
+    {
+      title: { type: 'string', maxLength: 80 },
+      priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
+      organization: { type: 'string' },
+      dueDate: { type: 'string' },
+      tags: { type: 'array', items: { type: 'number' } },
+      note: { type: 'string' },
+    },
+    ['title', 'organization'],
+  );
+  const changes = diffSchema(before, after).map(
+    (c) => `${c.breaking ? 'B' : 's'} ${c.path}: ${c.detail}`,
+  );
+  assert.deepEqual(
+    [...changes].sort(),
+    [
+      'B company: removed: agents that still send it are rejected',
+      'B title: maximum length 120 → 80',
+      'B organization: new required field: older calls are rejected',
+      'B tags[]: type string → number',
+      'B note: no longer accepts null',
+      's priority: also accepts "URGENT"',
+      's dueDate: new optional field',
+    ].sort(),
+  );
+  assert.deepEqual(
+    diffSchema(
+      object({ a: { type: 'string', maxLength: 5 } }, ['a']),
+      object({ a: { type: 'string', maxLength: 9 } }),
+    ).map((c) => [c.detail, c.breaking]),
+    [
+      ['required → optional', false],
+      ['maximum length 5 → 9', false],
+    ],
+  );
+  const tool = {
+    name: 'x',
+    description: 'd',
+    risk: 'read',
+    inputSchema: object({}),
+    source: { method: 'GET', route: '/api/x', file: 'a.ts' },
+  } as any;
+  assert.deepEqual(
+    diffTool(tool, { ...tool, risk: 'destructive', description: 'e' }).map((c) => [
+      c.path,
+      c.breaking,
+    ]),
+    [
+      ['risk', true],
+      ['description', false],
+    ],
+  );
 });

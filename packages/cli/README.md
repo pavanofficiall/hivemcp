@@ -1,8 +1,8 @@
-# Hive CLI v0.2.0 (in development)
+# Hive CLI v0.2.0
 
-Turn an existing **TypeScript + Next.js App Router** application into a local, inspectable MCP server. Analysis is deterministic and runs without API keys. The generated tools call existing REST APIs, preserving application authorization, validation and business logic.
+Turn an existing **TypeScript + Next.js App Router** application into an inspectable MCP server, run it locally, and optionally host it on your own Vercel account with one command. Analysis is deterministic and runs without API keys. The generated tools call existing REST APIs, preserving application authorization, validation and business logic.
 
-This standalone package is `@usehive/cli`; its executable is `hive`. The other code in this repository predates the CLI and is not a dependency of the package. No dashboard, database server, cloud integration or model provider is needed.
+This standalone package is `@usehive/cli`; its executable is `hive`. The other code in this repository predates the CLI and is not a dependency of the package. No Hive account, dashboard, database server or model provider is needed; `hive deploy` uses your own Vercel account through the Vercel CLI.
 
 The CLI and its generated templates are available under the MIT license; see [LICENSE](./LICENSE).
 
@@ -60,6 +60,8 @@ To inspect a separate application before generating anything, run `node /path/to
 | `hive tools disable create_contact`                  | Hide and refuse a tool (`enable` reverses it); no restart needed      |
 | `hive tools mode read-only`                          | Server mode: `all`, `read-only` (reads only) or `off` (no tools)      |
 | `hive logs`                                          | Latest agent tool calls; `--tool`, `--errors`, `--since 2h`, `-f`     |
+| `hive deploy --app-url https://myapp.com`            | Host the server on your Vercel and print a link for Claude/ChatGPT    |
+| `hive deploy --rotate-key`                           | Redeploy with a new secret link; the old link stops working           |
 | `hive dev`                                           | Start the generated Streamable HTTP server                            |
 | `hive dev --stdio`                                   | Start it with clean stdio transport                                   |
 | `hive inspect`                                       | Show generated manifest and candidates                                |
@@ -164,6 +166,22 @@ Every tool call the server handles is appended to `.hive/logs/actions.jsonl` (gi
 
 The server always binds to `127.0.0.1`. To reach it through a tunnel (for a web chat client), set `HIVE_ALLOWED_HOSTS` to the tunnel hostname and `HIVE_MCP_TOKEN` to a random value of at least 24 characters (`openssl rand -hex 24`); the server refuses to start with the first and not the second. Clients must send `Authorization: Bearer <token>`. This is a single shared token for private testing, not per-user OAuth.
 
+## Host it on Vercel (`hive deploy`)
+
+Chat apps such as Claude and ChatGPT connect to MCP servers over the internet, so a server on `127.0.0.1` is not enough for them. `hive deploy` hosts the generated server on **your own** Vercel account (the free Hobby plan works for personal, non-commercial use) and prints a link to paste into the chat app.
+
+```sh
+npx @usehive/cli deploy --app-url https://myapp.com
+```
+
+1. **Checks the live app.** Your application's frontend and backend must already be deployed: the hosted server calls its API over the internet. Hive refuses `localhost` and private addresses, and explains an app that is offline, routes missing on the live app (an older deployment), and API keys the app rejects. Write routes are only probed with `OPTIONS`; they are never called.
+2. **Deploys** a Vercel Function built from `.hive/mcp` through the Vercel CLI (`vercel login` opens your browser the first time). The project is `<app>-mcp`; `--project` overrides it.
+3. **Verifies** the live endpoint the way a chat app would (`initialize`, `tools/list`) before printing the link.
+
+The link looks like `https://<app>-mcp.vercel.app/mcp/<secret>`. Anyone with it can use the approved tools, so keep it private; `--rotate-key` issues a new one. In Claude, add it as a custom connector with **No sign-in** (on Team and Enterprise plans an Owner adds it under Organization settings → Connectors). In ChatGPT, add a custom MCP server with **No authentication**. Per-user OAuth is not supported yet.
+
+The deployment receives `HIVE_APP_BASE_URL`, `HIVE_APP_BEARER_TOKEN` / `HIVE_APP_COOKIE` from `.hive/mcp/.env`, and a snapshot of `.hive/policy.json`; rerun `hive deploy` after `hive tools` changes or `hive sync`. Agent calls are written to the Vercel project's runtime logs instead of `.hive/logs`. Settings and the secret are kept in `.hive/deploy.json` (git-ignored). Prefer an API key over a cookie: cookies expire and break the live server.
+
 ## Re-scan and ownership
 
 `hive sync` keeps the generated server in step with the app without re-reviewing everything. It compares the tools the server actually serves (`.hive/mcp/src/tools.json`) with a fresh scan:
@@ -172,6 +190,16 @@ The server always binds to `127.0.0.1`. To reach it through a tunnel (for a web 
 - Approved tools whose definition changed need re-approval: interactively, or with `--accept-changed`. Without a terminal and without that flag, sync writes nothing and exits 1. Changed tools you do not re-approve are removed from the server.
 - Approved tools whose route is gone are removed.
 - New operations are listed and offered interactively, never approved automatically.
+
+For each changed tool, sync lists what changed and whether it is **BREAKING** (a call an agent made before can now be rejected or misread) or a **safe change**. Breaking: removed fields, new required fields, optional → required, type changes, removed enum values, tighter limits or formats, no longer nullable, renames and raised risk. Safe: new optional fields, added enum values, looser limits, required → optional and description updates.
+
+```
+~ create_todo safe change — POST /api/todos
+    ✓ body.dueDate: new optional field
+~ add_application BREAKING — POST /api/applications
+    ✗ body.company: removed: agents that still send it are rejected
+    ✗ body.organization: new required field: older calls are rejected
+```
 
 `hive sync --check` writes nothing and exits 1 when any of the above applies or the server was generated by another Hive version, so it can guard CI or a pre-commit hook.
 
@@ -192,7 +220,7 @@ The monorepo's installed Next.js supplies the integration fixture runtime. Insta
 
 ## Known limits and next milestone
 
-- One application root at a time; no Pages Router, GraphQL, other frameworks or automatic deployment.
+- One application root at a time; no Pages Router, GraphQL or other frameworks. Hosting is Vercel only, with a shared secret link rather than per-user OAuth.
 - Catch-all/intercepting/parallel routes, wrapped handlers, non-JSON bodies, dynamic schemas and unresolved input mappings require manual review.
 - Local tsconfig aliases work; inherited tsconfig aliases and general interprocedural schema/data-flow analysis are not implemented.
 - No Zod transforms, refinements, coercions or arbitrary schema factories; no nested/nullable query values. Validation inside a separate service is not inferred as a request schema.

@@ -10,7 +10,8 @@ import { exists, detectProject } from '../scanner/project.js';
 import { generate, readPrevious, readServed, addPackageScript } from '../generator/project.js';
 import { diffCapabilities } from '../capabilities/build.js';
 import { VERSION } from '../version.js';
-import { planSync } from '../capabilities/sync.js';
+import { planSync, toDefinition } from '../capabilities/sync.js';
+import { diffTool } from '../capabilities/schema-diff.js';
 import { listTools, setTool, setMode, readPolicy, allowed } from './tools.js';
 import { showLogs } from './logs.js';
 import { deployCommand, readDeployState } from './deploy.js';
@@ -126,12 +127,18 @@ async function syncCommand(options: SyncOptions) {
   const outdated = served.version !== VERSION;
   console.log(`Hive v${VERSION} sync · ${result.application.name}\n`);
   console.log(`✓ ${plan.keep.length} approved tools unchanged`);
-  for (const c of plan.changed)
+  const changes = new Map(plan.changed.map((c) => [c, diffTool(c.before, toDefinition(c.after))]));
+  for (const [c, list] of changes) {
+    const breaking = list.some((x) => x.breaking);
     console.log(
-      `~ ${c.before.name} changed (${c.fields.join(', ')}) — ${c.after.source.method} ${c.after.source.route}`,
+      `~ ${c.before.name} ${breaking ? 'BREAKING' : 'safe change'} — ${c.after.source.method} ${c.after.source.route}`,
     );
+    for (const x of list) console.log(`    ${x.breaking ? '✗' : '✓'} ${x.path}: ${x.detail}`);
+  }
   for (const t of plan.removed)
-    console.log(`- ${t.name} is gone from the app — ${t.source.method} ${t.source.route}`);
+    console.log(
+      `- ${t.name} is gone from the app (BREAKING for agents using it) — ${t.source.method} ${t.source.route}`,
+    );
   for (const c of plan.added)
     console.log(
       `+ ${c.name} [${c.risk.toUpperCase()}] is new, not approved — ${c.source.method} ${c.source.route}`,
@@ -164,7 +171,16 @@ async function syncCommand(options: SyncOptions) {
       options: plan.changed.map((c) => ({
         value: c.after.name,
         label: `${c.after.name} [${c.after.risk.toUpperCase()}]`,
-        hint: `changed: ${c.fields.join(', ')}`,
+        hint: changes.get(c)!.some((x) => x.breaking)
+          ? `BREAKING: ${changes
+              .get(c)!
+              .filter((x) => x.breaking)
+              .map((x) => `${x.path} ${x.detail}`)
+              .join('; ')}`
+          : `safe: ${changes
+              .get(c)!
+              .map((x) => `${x.path} ${x.detail}`)
+              .join('; ')}`,
       })),
     });
     if (prompts.isCancel(choice)) {
@@ -199,7 +215,9 @@ async function syncCommand(options: SyncOptions) {
   console.log(`\n✓ Regenerated ${generated.tools} tools · ${generated.directory}`);
   const deployment = await readDeployState(root);
   if (deployment?.url)
-    console.log(`! Your live server (${deployment.url}) still has the old tools. Run hive deploy to update it.`);
+    console.log(
+      `! Your live server (${deployment.url}) still has the old tools. Run hive deploy to update it.`,
+    );
   if (options.install)
     await run(
       'npm',
@@ -278,7 +296,9 @@ program
   .action(showLogs);
 program
   .command('deploy')
-  .description('Host the generated MCP server on your Vercel account and print a link for Claude/ChatGPT')
+  .description(
+    'Host the generated MCP server on your Vercel account and print a link for Claude/ChatGPT',
+  )
   .option('-C, --cwd <directory>', 'Application root', process.cwd())
   .option('--app-url <url>', 'Public address of your deployed app, e.g. https://myapp.com')
   .option('--project <name>', 'Vercel project name (default: <app>-mcp)')
